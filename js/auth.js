@@ -150,7 +150,7 @@ async function handleSignUp(email, password, username) {
     const { data, error } = await supabaseClient.auth.signUp({ email, password });
 
     if (error) {
-        showAuthError(traduireErreur(error.message));
+        showAuthError(traduireErreur(describeError(error)));
         return;
     }
 
@@ -178,7 +178,7 @@ async function completeSignup(userId, username) {
 
     if (profileError) {
         console.warn("Impossible de créer le profil :", profileError.message);
-        showAuthError("Compte créé, mais le profil n'a pas pu être enregistré (" + profileError.message + "). Contacte le support.");
+        showAuthError("Compte créé, mais le profil n'a pas pu être enregistré (" + describeError(profileError) + "). Contacte le support.");
     }
 
     currentUserId = userId;
@@ -231,7 +231,7 @@ async function handleResendCode() {
         email: pendingSignupEmail,
     });
 
-    showAuthError(error ? traduireErreur(error.message) : "Nouveau code envoyé !");
+    showAuthError(error ? traduireErreur(describeError(error)) : "Nouveau code envoyé !");
 }
 
 // Affiche/masque l'écran de saisie du code (par-dessus le formulaire habituel)
@@ -249,7 +249,7 @@ async function handleLogin(email, password) {
     const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
 
     if (error) {
-        showAuthError(traduireErreur(error.message));
+        showAuthError(traduireErreur(describeError(error)));
         return;
     }
 
@@ -268,6 +268,20 @@ function traduireErreur(message) {
     if (message.includes("User already registered")) return "Un compte existe déjà avec cet email.";
     if (message.includes("Password should be at least")) return "Le mot de passe doit faire au moins 6 caractères.";
     return message;
+}
+
+// Garantit toujours un texte lisible à afficher, même si l'erreur renvoyée
+// n'a pas de .message exploitable (ex: échec réseau, projet Supabase en
+// pause) — pour ne plus jamais se retrouver avec un "{}" vide à l'écran
+// sans indice sur la vraie cause.
+function describeError(error) {
+    if (!error) return "Erreur inconnue.";
+    if (error.message) return error.message;
+    try {
+        return "Erreur sans détail (" + JSON.stringify(error) + ")";
+    } catch (e) {
+        return "Erreur sans détail exploitable.";
+    }
 }
 
 
