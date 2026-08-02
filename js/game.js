@@ -25,10 +25,10 @@ const M2_PER_POINT = 10;      // 1 point = 10 m² (1 "hars")
 
 // GAME_ZOOM : zoom maximum, utilisé en course (démarrage du tracking et
 // recentrage pendant une course).
-// IDLE_ZOOM : vue large (~1 km²), utilisée hors course (premier centrage
-// et recentrage hors course).
+// IDLE_ZOOM : vue plus rapprochée qu'avant, utilisée hors course (premier
+// centrage et recentrage hors course).
 const GAME_ZOOM = 19;
-const IDLE_ZOOM = 15;
+const IDLE_ZOOM = 17;
 
 
 //====================
@@ -90,7 +90,7 @@ function onPositionUpdate(position) {
         // devient de longueur nulle une fois le point poussé, et ne peut plus
         // jamais être détecté comme croisant quoi que ce soit.
         checkCloseZone(currentPoint);
-        if (!isRunning) return; // la zone vient d'être fermée, coords a été vidé
+        if (!isRunning) return; // garde-fou : la course a pu être arrêtée entre-temps
 
         coords.push(currentPoint);
         updateLine(coords);
@@ -139,27 +139,41 @@ function distance(point1, point2) {
 
 // Cherche un croisement entre le nouveau segment (dernier point du tracé ->
 // position actuelle) et un segment plus ancien du même tracé.
+// S'il y a plusieurs croisements possibles (le tracé repasse plusieurs fois
+// au même endroit), on garde celui qui donne la PLUS GRANDE surface une fois
+// la boucle fermée — pas le premier trouvé.
 // Renvoie { point, index } où index est la position du segment croisé dans
 // coords — nécessaire pour ne garder que la vraie boucle (du croisement au
 // croisement), en ignorant tout tracé antérieur, y compris un point de
 // départ imprécis.
 function checkIntersection(currentPoint) {
-    if (coords.length < 4) return null; // pas assez de segments pour croiser
+    if (coords.length < 3) return null; // pas assez de segments pour croiser
 
     const newSegmentStart = coords[coords.length - 1];
     const newSegmentEnd = currentPoint;
 
-    for (let i = 0; i < coords.length - 3; i++) {
+    let best = null;
+    let bestArea = -1;
+
+    // On exclut seulement le segment immédiatement adjacent (i = length-2) :
+    // il partage un point avec le nouveau segment et donnerait un faux
+    // positif trivial. Tous les autres segments plus anciens sont candidats.
+    for (let i = coords.length - 3; i >= 0; i--) {
         const segStart = coords[i];
         const segEnd = coords[i + 1];
 
         const intersection = segmentIntersection(segStart, segEnd, newSegmentStart, newSegmentEnd);
         if (intersection) {
-            return { point: intersection, index: i };
+            const loopPoints = [intersection, ...coords.slice(i + 1)];
+            const area = calculatePolygonArea(loopPoints);
+            if (area > bestArea) {
+                bestArea = area;
+                best = { point: intersection, index: i };
+            }
         }
     }
 
-    return null;
+    return best;
 }
 
 // Intersection entre deux segments [p1,p2] (existant) et [q1,q2] (nouveau)
@@ -270,9 +284,10 @@ function calculatePolygonArea(points) {
 
 // Ferme la zone : calcule sa surface, l'affiche, et la sauvegarde en ligne
 // (le serveur découpe les zones adverses chevauchées de façon atomique —
-// voir la fonction SQL insert_zone).
+// voir la fonction SQL insert_zone). Ne stoppe PAS la course : le joueur
+// continue à courir immédiatement après, sur un tracé tout neuf.
 function closeZone(points) {
-    stopTracking();
+    resetTraceAfterCapture();
 
     const area = calculatePolygonArea(points);
     playerTotalArea += area;
@@ -295,6 +310,16 @@ function closeZone(points) {
     saveZoneToSupabase(points, area).then(realId => {
         if (realId) newZoneObj.id = realId;
     });
+}
+
+// Vide le tracé en cours après une capture, sans toucher à isRunning ni à
+// l'UI — pour que le joueur puisse enchaîner une nouvelle zone tout de
+// suite, dans la même course.
+function resetTraceAfterCapture() {
+    clearLine();
+    coords = [];
+    firstTracingFix = true;
+    firstPoint = null;
 }
 
 // Convertit un anneau GeoJSON [lon, lat] (venant de Supabase) en points
