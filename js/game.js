@@ -74,6 +74,17 @@ function onPositionUpdate(position) {
     }
 
     if (isRunning) {
+        if (isInsideOwnTerritory(currentPoint)) {
+            // En sécurité chez soi : pas de tracé enregistré, comme dans
+            // Paper.io. Le tracé ne commence vraiment qu'à la sortie du
+            // territoire — ça évite aussi de fermer une zone minuscule au
+            // moment précis où on franchit sa propre bordure en sortant.
+            if (coords.length > 0) clearLine();
+            coords = [];
+            firstTracingFix = true;
+            return;
+        }
+
         // Ignore les mouvements trop faibles pour éviter le clignotement
         if (coords.length > 0) {
             const lastPoint = coords[coords.length - 1];
@@ -243,6 +254,41 @@ function checkZoneIntersection(currentPoint) {
     return null;
 }
 
+// Test point-dans-polygone (ray casting) : est-ce que "point" est à
+// l'intérieur du polygone "polygonPoints" ?
+function isPointInPolygon(point, polygonPoints) {
+    const lat = point[0];
+    const lon = point[1];
+    let inside = false;
+
+    for (let i = 0, j = polygonPoints.length - 1; i < polygonPoints.length; j = i++) {
+        const latI = polygonPoints[i][0];
+        const lonI = polygonPoints[i][1];
+        const latJ = polygonPoints[j][0];
+        const lonJ = polygonPoints[j][1];
+
+        const intersect =
+            ((lonI > lon) !== (lonJ > lon)) &&
+            (lat < (latJ - latI) * (lon - lonI) / (lonJ - lonI) + latI);
+
+        if (intersect) inside = !inside;
+    }
+
+    return inside;
+}
+
+// Est-ce que le joueur se trouve actuellement dans une de SES PROPRES zones ?
+// Utilisé pour ne pas enregistrer de tracé tant qu'on est "chez soi", en
+// sécurité — le tracé ne doit commencer qu'une fois sorti de son territoire.
+function isInsideOwnTerritory(point) {
+    for (let i = 0; i < zones.length; i++) {
+        if (zones[i].owner === "player" && isPointInPolygon(point, zones[i].points)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 
 //====================
 // Surface
@@ -355,3 +401,4 @@ function stopTracking() {
     updateButtonsUI(false);
     coords = [];
 }
+
