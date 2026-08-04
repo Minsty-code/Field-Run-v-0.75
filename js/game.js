@@ -11,6 +11,16 @@ let firstTracingFix = true;   // vrai jusqu'au premier point du tracé en cours
 let isCentred = true;         // la carte suit-elle la position actuelle ?
 let lastPosition = null;      // dernière position GPS connue
 
+// Vrai si on vient d'être bloqué au moins une fois par "on est encore dans
+// son propre territoire, on n'a pas encore commencé à tracer" — sert à
+// détecter si le tracé en cours est parti de chez soi ou non (voir plus bas).
+let recentlyInsideOwnTerritory = false;
+// Vrai si le tracé EN COURS est parti de son propre territoire (ou juste à
+// sa sortie) : dans ce cas, retoucher ce territoire plus tard ferme et
+// agrandit la zone. Si le tracé est parti d'ailleurs, traverser son propre
+// territoire ne déclenche rien — comme s'il n'existait pas pour ce trajet.
+let traceOriginatesFromOwnTerritory = false;
+
 // Chaque zone est un objet { id, owner, points, layer }.
 // owner vaut "player" pour une zone tracée localement, ou l'id du compte
 // (uuid Supabase) pour une zone chargée depuis le serveur.
@@ -98,10 +108,20 @@ function onPositionUpdate(position) {
         // Tant qu'aucun tracé n'a encore commencé, on ne démarre pas tant
         // qu'on est dans SON PROPRE territoire (sécurité façon Paper.io) —
         // ça évite de fermer une zone minuscule pile au moment de sortir la
-        // toute première fois. Une fois qu'un tracé est en cours, on continue
-        // à l'enregistrer normalement, dedans comme dehors.
+        // toute première fois. On mémorise au passage qu'on était dedans,
+        // pour savoir plus tard si ce tracé est "rattaché" à cette zone.
         if (coords.length === 0 && isInsideOwnTerritory(currentPoint)) {
+            recentlyInsideOwnTerritory = true;
             return;
+        }
+
+        if (coords.length === 0) {
+            // Premier point réellement enregistré pour ce tracé : il est
+            // rattaché à son propre territoire seulement si on vient tout
+            // juste d'en sortir (sinon il est parti d'ailleurs, et son
+            // territoire ne compte pas pour ce trajet).
+            traceOriginatesFromOwnTerritory = recentlyInsideOwnTerritory;
+            recentlyInsideOwnTerritory = false;
         }
 
         coords.push(currentPoint);
@@ -244,7 +264,14 @@ function checkZoneIntersection(currentPoint) {
     const newEnd = currentPoint;
 
     for (let i = 0; i < zones.length; i++) {
-        const zonePoints = zones[i].points;
+        const zone = zones[i];
+
+        // Si ce tracé n'est pas parti de son propre territoire, on ignore
+        // complètement ses propres zones : les traverser ne doit rien
+        // déclencher, comme si elles n'existaient pas pour ce trajet-là.
+        if (zone.owner === "player" && !traceOriginatesFromOwnTerritory) continue;
+
+        const zonePoints = zone.points;
         for (let j = 0; j < zonePoints.length; j++) {
             const segStart = zonePoints[j];
             const segEnd = zonePoints[(j + 1) % zonePoints.length];
@@ -367,6 +394,8 @@ function resetTraceAfterCapture() {
     coords = [];
     firstTracingFix = true;
     firstPoint = null;
+    recentlyInsideOwnTerritory = false;
+    traceOriginatesFromOwnTerritory = false;
 }
 
 // Convertit un anneau GeoJSON [lon, lat] (venant de Supabase) en points
@@ -389,6 +418,8 @@ function startTracking() {
     map.setView(lastPosition, GAME_ZOOM);
     firstTracingFix = true;
     firstPoint = null;
+    recentlyInsideOwnTerritory = false;
+    traceOriginatesFromOwnTerritory = false;
     updateButtonsUI(true);
     coords = [];
 }
