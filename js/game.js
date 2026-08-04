@@ -74,17 +74,6 @@ function onPositionUpdate(position) {
     }
 
     if (isRunning) {
-        if (isInsideOwnTerritory(currentPoint)) {
-            // En sécurité chez soi : pas de tracé enregistré, comme dans
-            // Paper.io. Le tracé ne commence vraiment qu'à la sortie du
-            // territoire — ça évite aussi de fermer une zone minuscule au
-            // moment précis où on franchit sa propre bordure en sortant.
-            if (coords.length > 0) clearLine();
-            coords = [];
-            firstTracingFix = true;
-            return;
-        }
-
         // Ignore les mouvements trop faibles pour éviter le clignotement
         if (coords.length > 0) {
             const lastPoint = coords[coords.length - 1];
@@ -99,9 +88,21 @@ function onPositionUpdate(position) {
         // La fermeture doit être vérifiée AVANT d'ajouter currentPoint à coords :
         // sinon le segment testé (dernier point du tracé -> position actuelle)
         // devient de longueur nulle une fois le point poussé, et ne peut plus
-        // jamais être détecté comme croisant quoi que ce soit.
+        // jamais être détecté comme croisant quoi que ce soit. C'est aussi ce
+        // qui capture correctement la zone si le tracé traverse une zone
+        // existante en cours de route (la sienne ou une autre) — au lieu de
+        // simplement l'effacer.
         checkCloseZone(currentPoint);
         if (!isRunning) return; // garde-fou : la course a pu être arrêtée entre-temps
+
+        // Tant qu'aucun tracé n'a encore commencé, on ne démarre pas tant
+        // qu'on est dans SON PROPRE territoire (sécurité façon Paper.io) —
+        // ça évite de fermer une zone minuscule pile au moment de sortir la
+        // toute première fois. Une fois qu'un tracé est en cours, on continue
+        // à l'enregistrer normalement, dedans comme dehors.
+        if (coords.length === 0 && isInsideOwnTerritory(currentPoint)) {
+            return;
+        }
 
         coords.push(currentPoint);
         updateLine(coords);
@@ -401,4 +402,3 @@ function stopTracking() {
     updateButtonsUI(false);
     coords = [];
 }
-
