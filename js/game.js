@@ -11,6 +11,16 @@ let firstTracingFix = true;   // vrai jusqu'au premier point du tracé en cours
 let isCentred = true;         // la carte suit-elle la position actuelle ?
 let lastPosition = null;      // dernière position GPS connue
 
+// Vrai si on vient d'être bloqué au moins une fois par "on est encore dans
+// ou tout près de son propre territoire, on n'a pas encore commencé à tracer"
+let recentlyNearOwnTerritory = false;
+// Vrai si le tracé EN COURS est parti de son propre territoire (dedans ou à
+// moins de 5m du bord — tolérance pour l'imprécision GPS) : dans ce cas,
+// retoucher ce territoire plus tard ferme et agrandit la zone. Si le tracé
+// est parti d'ailleurs, traverser son propre territoire ne déclenche rien —
+// comme s'il n'existait pas pour ce trajet.
+let traceOriginatesFromOwnTerritory = false;
+
 // Chaque zone est un objet { id, owner, points, layer }.
 // owner vaut "player" pour une zone tracée localement, ou l'id du compte
 // (uuid Supabase) pour une zone chargée depuis le serveur.
@@ -96,15 +106,30 @@ function onPositionUpdate(position) {
         if (!isRunning) return; // garde-fou : la course a pu être arrêtée entre-temps
 
         // Tant qu'aucun tracé n'a encore commencé, on ne démarre pas tant
-        // qu'on est dans SON PROPRE territoire (sécurité façon Paper.io) —
-        // ça évite de fermer une zone minuscule pile au moment de sortir la
-        // toute première fois.
-        if (coords.length === 0 && isInsideOwnTerritory(currentPoint)) {
+        // qu'on est dans ou tout près (5m, tolérance GPS) de SON PROPRE
+        // territoire — ça évite de fermer une zone minuscule pile au moment
+        // de sortir la toute première fois. On mémorise au passage qu'on en
+        // vient, pour savoir plus tard si ce tracé lui est "rattaché".
+        if (coords.length === 0 && isNearOwnTerritory(currentPoint, 5)) {
+            recentlyNearOwnTerritory = true;
             return;
+        }
+
+        if (coords.length === 0) {
+            // Premier point réellement enregistré pour ce tracé : il est
+            // rattaché à son propre territoire seulement si on vient tout
+            // juste d'en sortir (sinon il est parti d'ailleurs, et traverser
+            // ce territoire plus tard ne devra rien déclencher).
+            traceOriginatesFromOwnTerritory = recentlyNearOwnTerritory;
+            recentlyNearOwnTerritory = false;
         }
 
         coords.push(currentPoint);
         updateLine(coords);
+
+        // Badge de debug TEMPORAIRE
+        const debugEl = document.getElementById('debugPointCount');
+        if (debugEl) debugEl.textContent = `DEBUG — points tracé : ${coords.length}`;
 
         if (firstTracingFix) {
             firstPoint = [...currentPoint]; // copie propre, pas une référence
@@ -195,7 +220,20 @@ function segmentIntersection(p1, p2, q1, q2) {
     const s2y = q2[1] - q1[1];
 
     const denom = (-s2x * s1y + s1x * s2y);
-    if (Math.abs(denom) < 0.0000001) return null; // segments parallèles
+
+    // Seuil de parallélisme RELATIF à la longueur des segments, pas absolu.
+    // Nos coordonnées sont en degrés GPS (des nombres minuscules, ~0.00001
+    // pour quelques mètres) : un seuil absolu comme 1e-7 rejetait quasiment
+    // TOUS les croisements réels en les prenant pour des parallèles. Ici,
+    // normalizedDenom correspond à sin(angle entre les deux segments) —
+    // proche de 0 seulement pour de vrais segments parallèles, quelle que
+    // soit l'échelle des coordonnées utilisées.
+    const s1Length = Math.sqrt(s1x * s1x + s1y * s1y);
+    const s2Length = Math.sqrt(s2x * s2x + s2y * s2y);
+    if (s1Length === 0 || s2Length === 0) return null;
+
+    const normalizedDenom = Math.abs(denom) / (s1Length * s2Length);
+    if (normalizedDenom < 0.000001) return null; // vraiment parallèles
 
     const s = (-s1y * (p1[0] - q1[0]) + s1x * (p1[1] - q1[1])) / denom;
     const t = (s2x * (p1[1] - q1[1]) - s2y * (p1[0] - q1[0])) / denom;
@@ -243,7 +281,14 @@ function checkZoneIntersection(currentPoint) {
     const newEnd = currentPoint;
 
     for (let i = 0; i < zones.length; i++) {
-        const zonePoints = zones[i].points;
+        const zone = zones[i];
+
+        // Si ce tracé n'est pas parti de son propre territoire, on ignore
+        // complètement ses propres zones : les traverser ne doit rien
+        // déclencher, comme si elles n'existaient pas pour ce trajet-là.
+        if (zone.owner === "player" && !traceOriginatesFromOwnTerritory) continue;
+
+        const zonePoints = zone.points;
         for (let j = 0; j < zonePoints.length; j++) {
             const segStart = zonePoints[j];
             const segEnd = zonePoints[(j + 1) % zonePoints.length];
@@ -277,13 +322,43 @@ function isPointInPolygon(point, polygonPoints) {
     return inside;
 }
 
-// Est-ce que le joueur se trouve actuellement dans une de SES PROPRES zones ?
-// Utilisé pour ne pas enregistrer de tracé tant qu'on est "chez soi", en
-// sécurité — le tracé ne doit commencer qu'une fois sorti de son territoire.
-function isInsideOwnTerritory(point) {
+// Distance approximative (en mètres) entre un point et un segment — utilise
+// une projection locale plate, largement valable à l'échelle de quelques
+// mètres (la tolérance qu'on applique ici).
+function distanceToSegment(point, segStart, segEnd) {
+    const R = 6371000;
+    const toLocalMeters = (p) => [
+        R * (p[0] - segStart[0]) * Math.PI / 180,
+        R * (p[1] - segStart[1]) * Math.PI / 180 * Math.cos(segStart[0] * Math.PI / 180),
+    ];
+
+    const [px, py] = toLocalMeters(point);
+    const [bx, by] = toLocalMeters(segEnd);
+
+    const lengthSq = bx * bx + by * by;
+    let t = lengthSq === 0 ? 0 : (px * bx + py * by) / lengthSq;
+    t = Math.max(0, Math.min(1, t));
+
+    const dx = px - t * bx;
+    const dy = py - t * by;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+// Est-ce que le point est dans une de SES PROPRES zones, ou à moins de
+// toleranceMeters de son bord (tolérance pour l'imprécision GPS) ?
+function isNearOwnTerritory(point, toleranceMeters) {
     for (let i = 0; i < zones.length; i++) {
-        if (zones[i].owner === "player" && isPointInPolygon(point, zones[i].points)) {
-            return true;
+        if (zones[i].owner !== "player") continue;
+
+        const zonePoints = zones[i].points;
+        if (isPointInPolygon(point, zonePoints)) return true;
+
+        for (let j = 0; j < zonePoints.length; j++) {
+            const segStart = zonePoints[j];
+            const segEnd = zonePoints[(j + 1) % zonePoints.length];
+            if (distanceToSegment(point, segStart, segEnd) <= toleranceMeters) {
+                return true;
+            }
         }
     }
     return false;
@@ -366,6 +441,12 @@ function resetTraceAfterCapture() {
     coords = [];
     firstTracingFix = true;
     firstPoint = null;
+    recentlyNearOwnTerritory = false;
+    traceOriginatesFromOwnTerritory = false;
+
+    // Badge de debug TEMPORAIRE
+    const debugEl = document.getElementById('debugPointCount');
+    if (debugEl) debugEl.textContent = 'DEBUG — points tracé : 0';
 }
 
 // Convertit un anneau GeoJSON [lon, lat] (venant de Supabase) en points
@@ -388,8 +469,14 @@ function startTracking() {
     map.setView(lastPosition, GAME_ZOOM);
     firstTracingFix = true;
     firstPoint = null;
+    recentlyNearOwnTerritory = false;
+    traceOriginatesFromOwnTerritory = false;
     updateButtonsUI(true);
     coords = [];
+
+    // Badge de debug TEMPORAIRE
+    const debugEl = document.getElementById('debugPointCount');
+    if (debugEl) debugEl.textContent = 'DEBUG — points tracé : 0';
 }
 
 function stopTracking() {
