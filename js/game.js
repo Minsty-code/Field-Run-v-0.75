@@ -488,4 +488,3 @@ function stopTracking() {
     updateButtonsUI(false);
     coords = [];
 }
-
