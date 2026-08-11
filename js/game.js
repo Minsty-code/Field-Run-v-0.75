@@ -127,10 +127,6 @@ function onPositionUpdate(position) {
         coords.push(currentPoint);
         updateLine(coords);
 
-        // Badge de debug TEMPORAIRE
-        const debugEl = document.getElementById('debugPointCount');
-        if (debugEl) debugEl.textContent = `DEBUG — points tracé : ${coords.length}`;
-
         if (firstTracingFix) {
             firstPoint = [...currentPoint]; // copie propre, pas une référence
             firstTracingFix = false;
@@ -443,10 +439,6 @@ function resetTraceAfterCapture() {
     firstPoint = null;
     recentlyNearOwnTerritory = false;
     traceOriginatesFromOwnTerritory = false;
-
-    // Badge de debug TEMPORAIRE
-    const debugEl = document.getElementById('debugPointCount');
-    if (debugEl) debugEl.textContent = 'DEBUG — points tracé : 0';
 }
 
 // Convertit un anneau GeoJSON [lon, lat] (venant de Supabase) en points
@@ -473,10 +465,6 @@ function startTracking() {
     traceOriginatesFromOwnTerritory = false;
     updateButtonsUI(true);
     coords = [];
-
-    // Badge de debug TEMPORAIRE
-    const debugEl = document.getElementById('debugPointCount');
-    if (debugEl) debugEl.textContent = 'DEBUG — points tracé : 0';
 }
 
 function stopTracking() {
@@ -488,3 +476,4 @@ function stopTracking() {
     updateButtonsUI(false);
     coords = [];
 }
+
