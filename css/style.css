@@ -745,6 +745,36 @@ body.game-running .leaflet-tile {
     border-color: var(--gold);
     box-shadow: 0 0 0 3px rgba(240,201,0,0.18);
 }
+#authPasswordWrap {
+    position: relative;
+    width: 100%;
+}
+#authPasswordWrap input {
+    padding-right: 44px; /* laisse la place au bouton */
+}
+#authPasswordToggle {
+    position: absolute;
+    top: 50%;
+    right: 4px;
+    transform: translateY(-50%);
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--textdim);
+    cursor: pointer;
+    padding: 0;
+}
+#authPasswordToggle:hover {
+    color: var(--text);
+}
+#authPasswordToggle svg {
+    width: 20px;
+    height: 20px;
+}
 #authSubmitBtn {
     width: 100%;
     padding: 13px 14px;
@@ -911,22 +941,5 @@ body.game-running .leaflet-tile {
     font-size: 12px;
     font-family: "Barlow", sans-serif;
     cursor: pointer;
-}
-
-/* Badge de debug TEMPORAIRE — à retirer une fois le bug d'auto-croisement réglé */
-#debugPointCount {
-    position: fixed;
-    bottom: 200px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 3000;
-    background: rgba(0,0,0,0.75);
-    color: #00FF00;
-    border: 1px solid #00FF00;
-    padding: 6px 12px;
-    border-radius: 8px;
-    font-size: 12px;
-    font-family: monospace;
-    pointer-events: none;
 }
 
