@@ -297,9 +297,27 @@ function setupAuthFormListeners() {
         if (e.key === "Enter") handleAuthSubmit();
     });
 
+    document.getElementById("authPasswordToggle").addEventListener("click", togglePasswordVisibility);
+
     document.getElementById("authCodeSubmitBtn").addEventListener("click", handleCodeSubmit);
     document.getElementById("authResendLink").addEventListener("click", handleResendCode);
     document.getElementById("authCode").addEventListener("keydown", (e) => {
         if (e.key === "Enter") handleCodeSubmit();
     });
 }
+
+// Bascule l'affichage en clair / masqué du mot de passe (utilisé aussi bien
+// à la connexion qu'à l'inscription, les deux partagent le même champ)
+function togglePasswordVisibility() {
+    const input = document.getElementById("authPassword");
+    const showIcon = document.getElementById("authPasswordToggleIconShow");
+    const hideIcon = document.getElementById("authPasswordToggleIconHide");
+    const btn = document.getElementById("authPasswordToggle");
+
+    const isHidden = input.type === "password";
+    input.type = isHidden ? "text" : "password";
+    showIcon.style.display = isHidden ? "none" : "block";
+    hideIcon.style.display = isHidden ? "block" : "none";
+    btn.setAttribute("aria-label", isHidden ? "Masquer le mot de passe" : "Afficher le mot de passe");
+}
+
